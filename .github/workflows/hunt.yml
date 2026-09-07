@@ -62,7 +62,7 @@ jobs:
             set -- $SZ; OCPU=$1; MEM=$2
             [ $first -eq 1 ] || sleep 25
             first=0
-            if oci compute instance launch -c "$T" \
+            if oci compute instance launch -c "$T" --no-retry \
                  --availability-domain "$AD" \
                  --shape VM.Standard.A1.Flex \
                  --shape-config "{\"ocpus\":$OCPU,\"memoryInGBs\":$MEM}" \
