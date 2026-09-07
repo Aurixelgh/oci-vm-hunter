@@ -46,47 +46,39 @@ jobs:
             exit 0
           fi
 
+          # ONE launch attempt per run, rotating the size. The cron fires every ~5 min,
+          # so this is ~1 call / 5 min -- well under Oracle's per-tenancy launch limit.
+          case $(( ${{ github.run_number }} % 3 )) in
+            0) OCPU=2; MEM=12 ;;
+            1) OCPU=1; MEM=12 ;;
+            *) OCPU=1; MEM=6  ;;
+          esac
+          echo "trying ${OCPU} OCPU / ${MEM} GB"
+
           IMG=$(oci compute image list -c "$T" --operating-system "Canonical Ubuntu" \
             --operating-system-version "24.04" --shape VM.Standard.A1.Flex \
             --query "data[0].id" --raw-output)
-          echo "Ubuntu image: $IMG"
 
           echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCr26fzO8Lgy8Ruorsj5jx8eQ/LL/BgdxYnFxdY2C4uyqYHyShYjnhXYLmV+eHa7zp0AzN1FaMjcJRkysIAqYBW6ooE2R+5SPF2SWUiSV6fRJ0KR5xHrYEDeaYyfOLZwVQS8zxCKBUms7m86MlUBdGUUr6hjc47u1oOHDXQL+hG4mwrDnq77my1NOTcKsxopMD8KLOS94kCOMFQAjNM+n1cMCw0ekY9sgIHRZRykMTpWhEyQ6QueDFKeNBk9FEWLV7SNmKueAf+9bGIgfx5UE7xTHProtZ7OmL0eyccd75xC1Gz2OXI5NKhhKQXXpTTGbfrNmjch4fEnakJ7zWgUe0V ssh-key-2026-09-07' > /tmp/ssh.pub
 
-          # One gentle pass per run (this workflow re-runs every ~5 min). No fault-domain
-          # loop -- OCI picks a fault domain with capacity itself. Spaced out to dodge
-          # the launch API's TooManyRequests limit.
-          GOT=""
-          first=1
-          for SZ in "2 12" "1 12" "1 6"; do
-            set -- $SZ; OCPU=$1; MEM=$2
-            [ $first -eq 1 ] || sleep 25
-            first=0
-            if oci compute instance launch -c "$T" --no-retry \
-                 --availability-domain "$AD" \
-                 --shape VM.Standard.A1.Flex \
-                 --shape-config "{\"ocpus\":$OCPU,\"memoryInGBs\":$MEM}" \
-                 --image-id "$IMG" --subnet-id "$SUBNET" --assign-public-ip true \
-                 --ssh-authorized-keys-file /tmp/ssh.pub \
-                 --display-name "free-${OCPU}c-${MEM}g" > /tmp/out.json 2> /tmp/err.txt; then
-              echo "::notice title=VM ACQUIRED::${OCPU} OCPU / ${MEM} GB"
-              GOT="${OCPU} OCPU / ${MEM} GB"
-              break
-            fi
-            if   grep -qi "Out of host capacity" /tmp/err.txt; then
-              echo "no capacity   ${OCPU}c/${MEM}g"
-            elif grep -qi "TooManyRequests" /tmp/err.txt; then
-              echo "rate limited  ${OCPU}c/${MEM}g (will retry next run)"; sleep 20
-            elif grep -qiE "LimitExceeded|quota|maximum number" /tmp/err.txt; then
-              echo "::warning::limit hit for ${OCPU}c/${MEM}g -> $(tr -d '\n' < /tmp/err.txt | cut -c1-200)"
-            else
-              echo "other error   ${OCPU}c/${MEM}g -> $(tr -d '\n' < /tmp/err.txt | cut -c1-200)"
-            fi
-          done
-
-          if [ -n "$GOT" ]; then
+          if oci compute instance launch -c "$T" --no-retry \
+               --availability-domain "$AD" \
+               --shape VM.Standard.A1.Flex \
+               --shape-config "{\"ocpus\":$OCPU,\"memoryInGBs\":$MEM}" \
+               --image-id "$IMG" --subnet-id "$SUBNET" --assign-public-ip true \
+               --ssh-authorized-keys-file /tmp/ssh.pub \
+               --display-name "free-${OCPU}c-${MEM}g" > /tmp/out.json 2> /tmp/err.txt; then
+            echo "::notice title=VM ACQUIRED::${OCPU} OCPU / ${MEM} GB"
             gh issue create \
-              --title "Oracle VM acquired: $GOT" \
-              --body "The retry workflow launched an instance ($GOT). Open the OCI console -> Compute -> Instances. Future runs will now no-op automatically." \
+              --title "Oracle VM acquired: ${OCPU} OCPU / ${MEM} GB" \
+              --body "The retry workflow launched an instance. Open the OCI console -> Compute -> Instances. Future runs will no-op automatically." \
               || true
+            exit 0
+          fi
+
+          E=$(tr -d '\n' < /tmp/err.txt | cut -c1-250)
+          if   grep -qi "Out of host capacity" /tmp/err.txt; then echo "no capacity (${OCPU}c/${MEM}g)"
+          elif grep -qi "TooManyRequests"      /tmp/err.txt; then echo "rate limited -- backing off, next run in ~5 min"
+          elif grep -qiE "LimitExceeded|maximum number" /tmp/err.txt; then echo "::warning::LIMIT: $E"
+          else echo "::warning::unexpected: $E"
           fi
