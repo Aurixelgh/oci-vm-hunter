@@ -46,9 +46,13 @@ jobs:
             exit 0
           fi
 
-          # ONE launch attempt per run, smallest shape only -- best odds of fitting
-          # fragmented capacity. The cron fires every ~5 min, so this is ~1 call / 5 min.
-          OCPU=1; MEM=6
+          # ONE launch attempt per run, rotating the size. The cron fires every ~5 min,
+          # so this is ~1 call / 5 min -- well under Oracle's per-tenancy launch limit.
+          case $(( ${{ github.run_number }} % 3 )) in
+            0) OCPU=2; MEM=12 ;;
+            1) OCPU=1; MEM=12 ;;
+            *) OCPU=1; MEM=6  ;;
+          esac
           echo "trying ${OCPU} OCPU / ${MEM} GB"
 
           IMG=$(oci compute image list -c "$T" --operating-system "Canonical Ubuntu" \

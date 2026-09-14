@@ -19,7 +19,7 @@ SSH_KEY = (
     "Q6QueDFKeNBk9FEWLV7SNmKueAf+9bGIgfx5UE7xTHProtZ7OmL0eyccd75xC1Gz2OXI5NKhhKQXXpTTGbfrNmjch4fE"
     "nakJ7zWgUe0V ssh-key-2026-09-07"
 )
-SIZES = [(1, 6)]   # OCPU, GB — smallest shape only: best odds of fitting fragmented capacity
+SIZES = [(2, 12), (1, 12), (1, 6)]   # OCPU, GB — tried in this order, rotating
 GAP = 90                              # seconds between attempts (proven safe rate)
 RATE_LIMIT_SLEEP = 200                # extra wait after a 429
 
